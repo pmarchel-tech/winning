@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "Win": {
+      "title": "Win",
+      "description": "A daily win or achievement recorded by the user.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "The main description of the win." },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags associated with the win." },
+        "starred": { "type": "boolean", "description": "Whether the win is highlighted/starred." },
+        "pinned": { "type": "boolean", "description": "Whether the win is pinned as a master quote." },
+        "userId": { "type": "string", "description": "The UID of the owner." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp of creation." },
+        "isHabitMode": { "type": "boolean", "description": "Whether the entry was created in habit mode." },
+        "imageUrl": { "type": "string", "description": "Optional base64 encoded image or URL." },
+        "reflections": { "type": "string", "description": "Deeper reflections on the win." },
+        "embedding": { "type": "array", "items": { "type": "number" }, "description": "Vector embedding for semantic search." }
+      },
+      "required": ["text", "userId", "createdAt", "isHabitMode"]
+    },
+    "Tag": {
+      "title": "Tag",
+      "description": "A custom category used to organize wins.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The display name of the tag (e.g. #Work)." },
+        "userId": { "type": "string", "description": "The UID of the owner." },
+        "count": { "type": "integer", "description": "Number of times this tag has been used." }
+      },
+      "required": ["name", "userId"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User specific streak and performance data.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "streakCount": { "type": "integer" },
+        "lastWinDate": { "type": "string", "format": "date-time" },
+        "weeklyMomentum": { "type": "array", "items": { "type": "boolean" } }
+      },
+      "required": ["userId"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "User preferences and templates.",
+      "type": "object",
+      "properties": {
+        "templates": { "type": "array", "items": { "type": "string" }, "description": "Master entry templates." }
+      }
+    },
+    "ChatStar": {
+      "title": "ChatStar",
+      "description": "A starred AI chat response for quick reference.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the owner." },
+        "userPrompt": { "type": "string", "description": "The message from the user that triggered this AI response." },
+        "aiResponse": { "type": "string", "description": "The AI's response text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp when starred." }
+      },
+      "required": ["userId", "userPrompt", "aiResponse", "createdAt"]
+    },
+    "TokenLog": {
+      "title": "Token Log",
+      "description": "Records AI token consumption for different features.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the owner or 'anonymous'." },
+        "functionName": { "type": "string", "description": "The feature or action of the AI." },
+        "inputTokens": { "type": "integer", "description": "Number of input tokens." },
+        "outputTokens": { "type": "integer", "description": "Number of output tokens." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of use." }
+      },
+      "required": ["userId", "functionName", "inputTokens", "outputTokens", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/token_logs/{logId}": {
+      "schema": "TokenLog",
+      "description": "Logs of Google AI token usage."
+    },
+    "/wins/{winId}": {
+      "schema": "Win",
+      "description": "Individual win logs."
+    },
+    "/tags/{tagId}": {
+      "schema": "Tag",
+      "description": "User defined tags."
+    },
+    "/profiles/{userId}": {
+      "schema": "UserProfile",
+      "description": "Per-user streak statistics."
+    },
+    "/settings/{userId}": {
+      "schema": "Settings",
+      "description": "User settings and predefined templates."
+    },
+    "/chat_stars/{starId}": {
+      "schema": "ChatStar",
+      "description": "Starred AI chat responses."
+    }
+  }
+}

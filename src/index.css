@@ -1,0 +1,119 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Playfair+Display:ital,wght@1,600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+
+  /* Colors defined as CSS variables to allow easy switching */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-tertiary: var(--tertiary);
+  
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  
+  --color-on-background: var(--on-background);
+  --color-on-primary: var(--on-primary);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  
+  --radius-lg: 2rem;
+  --radius-xl: 3rem;
+  
+  --spacing-margin-page: 24px;
+  --spacing-stack-md: 16px;
+  --spacing-stack-lg: 32px;
+}
+
+@layer base {
+  :root {
+    --background: #fdf8f8;
+    --surface: #ffffff;
+    --primary: #000000;
+    --secondary: #006b5f;
+    --tertiary: #f97316;
+
+    --surface-container: #f1edec;
+    --surface-container-low: #f5f1f0;
+    --surface-container-high: #ebe7e6;
+    --surface-container-highest: #e5e2e1;
+
+    --on-background: #1c1b1b;
+    --on-primary: #ffffff;
+    --on-surface: #1c1b1b;
+    --on-surface-variant: #444748;
+  }
+
+  .dark {
+    --background: #121212;
+    --surface: #1e1e1e;
+    --primary: #ffffff;
+    --secondary: #4fd1c5;
+    --tertiary: #fb923c;
+
+    --surface-container: #2c2c2c;
+    --surface-container-low: #242424;
+    --surface-container-high: #333333;
+    --surface-container-highest: #3d3d3d;
+
+    --on-background: #e2e2e2;
+    --on-primary: #000000;
+    --on-surface: #e2e2e2;
+    --on-surface-variant: #a1a1a1;
+  }
+
+  body {
+    @apply bg-background text-on-background font-sans antialiased transition-colors duration-300;
+    min-height: 100dvh;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  .bento-card {
+    @apply bg-surface p-6 rounded-[24px] shadow-[0px_4px_20px_rgba(0,0,0,0.04)] border border-transparent transition-all overflow-hidden;
+  }
+  
+  .label-caps {
+    @apply text-[12px] font-bold uppercase tracking-widest text-on-surface-variant;
+  }
+  
+  .editorial-header {
+    @apply font-serif italic text-3xl;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .markdown-content strong {
+    @apply font-bold;
+  }
+  .markdown-content strong:not([class*="text-"]) {
+    @apply text-primary;
+  }
+  .bg-secondary .markdown-content strong {
+    @apply text-white brightness-125;
+  }
+  .markdown-content p {
+    @apply mb-2 last:mb-0;
+  }
+  .markdown-content ul {
+    @apply list-disc ml-4 mb-2;
+  }
+  .markdown-content li {
+    @apply mb-1;
+  }
+}
