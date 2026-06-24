@@ -1553,18 +1553,24 @@ function AppContent() {
 
     fetchWins();
 
+    let debounceTimeout: any = null;
+
     const channel = supabase
       .channel(`wins_${user.uid}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'wins', filter: `user_id=eq.${user.uid}` },
         () => {
-          fetchWins();
+          if (debounceTimeout) clearTimeout(debounceTimeout);
+          debounceTimeout = setTimeout(() => {
+            fetchWins();
+          }, 800); // Debounce to allow batch updates to finish
         }
       )
       .subscribe();
 
     return () => {
+      if (debounceTimeout) clearTimeout(debounceTimeout);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -2293,7 +2299,28 @@ function AppContent() {
       }
     } catch (err: any) {
       console.error("Auth error:", err);
-      setError(err.message || String(err));
+      
+      const serializeError = (e: any): string => {
+        if (!e) return "Unknown error";
+        if (typeof e === 'string') return e;
+        
+        const obj: any = {};
+        Object.getOwnPropertyNames(e).forEach(key => {
+          obj[key] = e[key];
+        });
+        
+        Object.keys(e).forEach(key => {
+          obj[key] = e[key];
+        });
+        
+        try {
+          return JSON.stringify(obj);
+        } catch (err) {
+          return e.toString ? e.toString() : String(e);
+        }
+      };
+      
+      setError(`Auth Error Detail: ${serializeError(err)}`);
     } finally {
       setLoggingIn(false);
     }
@@ -2398,6 +2425,20 @@ function AppContent() {
         if (deleteErr) throw deleteErr;
       }
 
+      // Update local state for wins and allWins
+      setWins(prev => prev.map(w => {
+        if (w.tags.includes(oldTagName)) {
+          return { ...w, tags: w.tags.map(t => t === oldTagName ? formattedNewName : t) };
+        }
+        return w;
+      }));
+      setAllWins(prev => prev.map(w => {
+        if (w.tags.includes(oldTagName)) {
+          return { ...w, tags: w.tags.map(t => t === oldTagName ? formattedNewName : t) };
+        }
+        return w;
+      }));
+
       setEditingTag(null);
     } catch (error) {
       console.error("Rename tag failed:", error);
@@ -2431,6 +2472,20 @@ function AppContent() {
         .delete()
         .eq('id', tagId);
       if (deleteErr) throw deleteErr;
+
+      // Update local state for wins and allWins
+      setWins(prev => prev.map(w => {
+        if (w.tags.includes(tagName)) {
+          return { ...w, tags: w.tags.filter(t => t !== tagName) };
+        }
+        return w;
+      }));
+      setAllWins(prev => prev.map(w => {
+        if (w.tags.includes(tagName)) {
+          return { ...w, tags: w.tags.filter(t => t !== tagName) };
+        }
+        return w;
+      }));
 
       setConfirmDelete(null);
     } catch (error) {
@@ -2532,13 +2587,45 @@ function AppContent() {
         setShowConfetti(false);
       }, 400);
       
+      // Construct the Win object
+      const newWin: Win = {
+        id: winId,
+        text: entry.text,
+        tags: uniqueTags,
+        createdAt: new Date(finalTimestamp).getTime(),
+        starred: !!entry.starred,
+        pinned: !!entry.pinned,
+        isHabitMode: !!entry.isHabitMode,
+        isBeDoHave: !!entry.isBeDoHave,
+        beText: entry.beText || "",
+        doText: entry.doText || "",
+        haveText: entry.haveText || "",
+        imageUrl: entry.imageUrl || null,
+        reflections: entry.reflections || "",
+        embedding: embedding
+      };
+
+      // Update local state for wins and allWins immediately
+      setWins(prev => {
+        const filtered = prev.filter(w => w.id !== entry.id && w.id !== winId);
+        const updated = [newWin, ...filtered];
+        updated.sort((a, b) => b.createdAt - a.createdAt);
+        return updated;
+      });
+      setAllWins(prev => {
+        const filtered = prev.filter(w => w.id !== entry.id && w.id !== winId);
+        const updated = [newWin, ...filtered];
+        updated.sort((a, b) => b.createdAt - a.createdAt);
+        return updated;
+      });
+
       // Update originalEntries and draftEntries to reflect the save instantly
       const updatedEntry = { ...entry, id: winId, createdAt: new Date(finalTimestamp).getTime() };
+      setDraftEntries(prev => prev.map(e => e.id === entryId ? updatedEntry : e));
       if (isNew) {
-        setDraftEntries(prev => prev.map(e => e.id === entryId ? updatedEntry : e));
         setOriginalEntries(prev => [...prev, updatedEntry]);
       } else {
-        setOriginalEntries(prev => prev.map(e => e.id === entryId ? entry : e));
+        setOriginalEntries(prev => prev.map(e => e.id === entryId ? updatedEntry : e));
       }
 
       // Generate embedding in the background if needed
@@ -2556,6 +2643,8 @@ function AppContent() {
               // Update local state
               setDraftEntries(prev => prev.map(e => e.id === winId ? { ...e, embedding: newEmbedding } : e));
               setOriginalEntries(prev => prev.map(e => e.id === winId ? { ...e, embedding: newEmbedding } : e));
+              setWins(prev => prev.map(w => w.id === winId ? { ...w, embedding: newEmbedding } : w));
+              setAllWins(prev => prev.map(w => w.id === winId ? { ...w, embedding: newEmbedding } : w));
               console.log(`Updated embedding in background for ${winId}`);
             }
           } catch (err) {
@@ -2581,6 +2670,10 @@ function AppContent() {
       // Map to track the final state of entries after save
       const finalEntries: DraftEntry[] = [];
       const entriesToUpdateEmbeddings: { id: string; text: string }[] = [];
+      const savedWinsList: Win[] = [];
+      const winsDataToUpsert: any[] = [];
+      const tagsToUpsert: any[] = [];
+      const seenTagIds = new Set<string>();
 
       // Handle updates and additions
       for (const entry of validEntries) {
@@ -2629,41 +2722,93 @@ function AppContent() {
           embedding: entry.embedding || null,
           reflections: entry.reflections || ""
         };
+        
+        winsDataToUpsert.push(data);
 
-        const { error: winErr } = await supabase.from('wins').upsert(data);
-        if (winErr) throw winErr;
-
-        // Update tags
+        // Collect tags for bulk upsert
         for (const tagName of uniqueTags) {
           const sanitizedTagName = tagName.replace('#', '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
           const tagId = `${user.uid}_${sanitizedTagName}`;
-          const { error: tagErr } = await supabase.from('tags').upsert({
-            id: tagId,
-            name: tagName,
-            user_id: user.uid,
-            count: 1 
-          });
-          if (tagErr) throw tagErr;
+          if (!seenTagIds.has(tagId)) {
+            seenTagIds.add(tagId);
+            tagsToUpsert.push({
+              id: tagId,
+              name: tagName,
+              user_id: user.uid,
+              count: 1
+            });
+          }
         }
+
+        const newWin: Win = {
+          id: winId,
+          text: entry.text,
+          tags: uniqueTags,
+          createdAt: new Date(finalTimestamp).getTime(),
+          starred: !!entry.starred,
+          pinned: !!entry.pinned,
+          isHabitMode: !!entry.isHabitMode,
+          isBeDoHave: !!entry.isBeDoHave,
+          beText: entry.beText || "",
+          doText: entry.doText || "",
+          haveText: entry.haveText || "",
+          imageUrl: entry.imageUrl || null,
+          reflections: entry.reflections || "",
+          embedding: entry.embedding || null
+        };
+        savedWinsList.push(newWin);
 
         finalEntries.push({ ...entry, id: winId, createdAt: new Date(finalTimestamp).getTime() });
       }
 
-      // Handle deletions
+      // 1. Perform bulk upsert of wins
+      if (winsDataToUpsert.length > 0) {
+        const { error: winErr } = await supabase.from('wins').upsert(winsDataToUpsert);
+        if (winErr) throw winErr;
+      }
+
+      // 2. Perform bulk upsert of tags
+      if (tagsToUpsert.length > 0) {
+        const { error: tagsErr } = await supabase.from('tags').upsert(tagsToUpsert);
+        if (tagsErr) throw tagsErr;
+      }
+
+      // Handle deletions in bulk
+      const deletedIds: string[] = [];
       for (const original of originalEntries) {
         if (!original.id.startsWith('new_') && !draftEntries.find(d => d.id === original.id)) {
-          const { error: deleteErr } = await supabase
-            .from('wins')
-            .delete()
-            .eq('id', original.id);
-          if (deleteErr) throw deleteErr;
+          deletedIds.push(original.id);
         }
+      }
+
+      if (deletedIds.length > 0) {
+        const { error: deleteErr } = await supabase
+          .from('wins')
+          .delete()
+          .in('id', deletedIds);
+        if (deleteErr) throw deleteErr;
       }
 
       if (shouldRedirect === true) {
         setActiveView('home');
       }
       
+      // Update local state for wins and allWins immediately
+      setWins(prev => {
+        const savedIds = new Set(savedWinsList.map(w => w.id));
+        const filtered = prev.filter(w => !deletedIds.includes(w.id) && !savedIds.has(w.id));
+        const updated = [...savedWinsList, ...filtered];
+        updated.sort((a, b) => b.createdAt - a.createdAt);
+        return updated;
+      });
+      setAllWins(prev => {
+        const savedIds = new Set(savedWinsList.map(w => w.id));
+        const filtered = prev.filter(w => !deletedIds.includes(w.id) && !savedIds.has(w.id));
+        const updated = [...savedWinsList, ...filtered];
+        updated.sort((a, b) => b.createdAt - a.createdAt);
+        return updated;
+      });
+
       // Update state to reflect saved state immediately
       setDraftEntries(finalEntries);
       setOriginalEntries(JSON.parse(JSON.stringify(finalEntries)));
@@ -2687,6 +2832,12 @@ function AppContent() {
                   .update({ embedding })
                   .eq('id', item.id);
                 if (embedErr) throw embedErr;
+
+                // Update local state
+                setDraftEntries(prev => prev.map(e => e.id === item.id ? { ...e, embedding } : e));
+                setOriginalEntries(prev => prev.map(e => e.id === item.id ? { ...e, embedding } : e));
+                setWins(prev => prev.map(w => w.id === item.id ? { ...w, embedding } : w));
+                setAllWins(prev => prev.map(w => w.id === item.id ? { ...w, embedding } : w));
                 console.log(`Updated embedding for ${item.id}`);
               }
             } catch (err) {
