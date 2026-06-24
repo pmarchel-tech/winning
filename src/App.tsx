@@ -483,6 +483,14 @@ function AppContent() {
   // Clear Data state variables
   const [showClearDataConfirmation, setShowClearDataConfirmation] = useState(false);
 
+  // Change Password state variables
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+
   const handleExportData = () => {
     const dataToExport = allWins.length > 0 ? allWins : wins;
     if (dataToExport.length === 0) {
@@ -1028,6 +1036,47 @@ function AppContent() {
         : `Failed to delete data: ${err.message || err}`);
     } finally {
       setLoggingIn(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPasswordInput || !confirmPasswordInput) return;
+
+    if (newPasswordInput.length < 6) {
+      setPasswordError(language === 'ID' ? 'Password baru minimal 6 karakter.' : 'New password must be at least 6 characters.');
+      return;
+    }
+
+    if (newPasswordInput !== confirmPasswordInput) {
+      setPasswordError(language === 'ID' ? 'Konfirmasi password tidak cocok.' : 'Confirm password does not match.');
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPasswordInput
+      });
+
+      if (error) throw error;
+
+      setPasswordSuccess(language === 'ID' ? 'Password Anda berhasil diperbarui.' : 'Your password has been successfully updated.');
+      setNewPasswordInput('');
+      setConfirmPasswordInput('');
+      setTimeout(() => {
+        setShowChangePasswordModal(false);
+        setPasswordSuccess(null);
+      }, 2000);
+
+    } catch (err: any) {
+      console.error("Change password error:", err);
+      setPasswordError(err.message || (language === 'ID' ? 'Gagal memperbarui password.' : 'Failed to update password.'));
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -4742,6 +4791,12 @@ function AppContent() {
                   <span className="label-caps text-secondary">{language === 'ID' ? 'Profil & Pengaturan' : 'Profile & Settings'}</span>
                   <h1 className="editorial-header">{user?.displayName || 'User'}</h1>
                   <p className="text-on-surface-variant text-sm">{user?.email}</p>
+                  <button 
+                    onClick={() => setShowChangePasswordModal(true)}
+                    className="text-primary text-[10px] font-bold uppercase tracking-wider text-left mt-1 hover:underline active:scale-95 transition-all cursor-pointer w-fit"
+                  >
+                    {language === 'ID' ? 'Ubah Password' : 'Change Password'}
+                  </button>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                   <button
@@ -5414,6 +5469,121 @@ function AppContent() {
                   {language === 'ID' ? 'Batal' : 'Cancel'}
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Change Password Modal */}
+      <AnimatePresence>
+        {showChangePasswordModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (!isUpdatingPassword) {
+                setShowChangePasswordModal(false);
+                setNewPasswordInput('');
+                setConfirmPasswordInput('');
+                setPasswordError(null);
+                setPasswordSuccess(null);
+              }
+            }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 cursor-default"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="bg-surface dark:bg-zinc-950 border border-surface-container max-w-sm w-full rounded-[32px] p-6 shadow-2xl flex flex-col gap-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="text-base font-bold text-on-surface">
+                    {language === 'ID' ? 'Ubah Password' : 'Change Password'}
+                  </h3>
+                  <p className="text-xs text-on-surface-variant">
+                    {language === 'ID' ? 'Perbarui sandi keamanan akun Anda' : 'Update your account security password'}
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleUpdatePassword} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+                    {language === 'ID' ? 'Password Baru' : 'New Password'}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    disabled={isUpdatingPassword}
+                    required
+                    className="w-full px-4 py-2.5 rounded-2xl bg-surface-container text-on-surface border border-surface-container-high focus:outline-none focus:border-primary text-sm transition-colors"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
+                    {language === 'ID' ? 'Konfirmasi Password Baru' : 'Confirm New Password'}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={confirmPasswordInput}
+                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                    disabled={isUpdatingPassword}
+                    required
+                    className="w-full px-4 py-2.5 rounded-2xl bg-surface-container text-on-surface border border-surface-container-high focus:outline-none focus:border-primary text-sm transition-colors"
+                  />
+                </div>
+
+                {passwordError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 leading-tight">
+                    {passwordError}
+                  </p>
+                )}
+
+                {passwordSuccess && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400 leading-tight">
+                    {passwordSuccess}
+                  </p>
+                )}
+
+                <div className="flex gap-2 w-full mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChangePasswordModal(false);
+                      setNewPasswordInput('');
+                      setConfirmPasswordInput('');
+                      setPasswordError(null);
+                      setPasswordSuccess(null);
+                    }}
+                    disabled={isUpdatingPassword}
+                    className="flex-1 py-3 bg-surface-container hover:bg-surface-container-high text-on-surface rounded-2xl font-semibold text-xs transition-colors active:scale-97 cursor-pointer disabled:opacity-50"
+                  >
+                    {language === 'ID' ? 'Batal' : 'Cancel'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingPassword || !newPasswordInput || !confirmPasswordInput}
+                    className="flex-1 py-3 bg-primary text-on-primary hover:bg-primary/95 rounded-2xl font-bold text-xs transition-all shadow-md active:scale-97 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isUpdatingPassword && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{isUpdatingPassword ? (language === 'ID' ? 'Menyimpan...' : 'Saving...') : (language === 'ID' ? 'Simpan' : 'Save')}</span>
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
