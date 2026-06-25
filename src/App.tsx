@@ -155,6 +155,12 @@ const TRANSLATIONS = {
   }
 };
 
+const cleanAiResponse = (text: string): string => {
+  if (!text) return "";
+  // Strip token usage footer: \n\n[Token Terpakai - Input: ..., Output: ...]
+  return text.split("\n\n[Token Terpakai -")[0].trim();
+};
+
 // App Error Boundary
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -312,6 +318,7 @@ function AppContent() {
   
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [templates, setTemplates] = useState<string[]>([]);
+  const [aiMemory, setAiMemory] = useState<string>('');
   const [newTemplate, setNewTemplate] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [compressingId, setCompressingId] = useState<string | null>(null);
@@ -1240,7 +1247,20 @@ function AppContent() {
     const groups: { [key: string]: any[] } = {};
     chatStars.forEach(star => {
       const locale = language === 'ID' ? 'id-ID' : 'en-US';
-      const date = new Date(star.createdAt?.seconds * 1000).toLocaleDateString(locale, { 
+      
+      let dateVal = Date.now();
+      if (star.createdAt) {
+        if (typeof star.createdAt === 'number') {
+          dateVal = star.createdAt;
+        } else if (typeof star.createdAt === 'object' && star.createdAt.seconds) {
+          dateVal = star.createdAt.seconds * 1000;
+        } else if (typeof star.createdAt === 'string') {
+          const parsed = new Date(star.createdAt).getTime();
+          if (!isNaN(parsed)) dateVal = parsed;
+        }
+      }
+
+      const date = new Date(dateVal).toLocaleDateString(locale, { 
         day: 'numeric', 
         month: 'short', 
         year: 'numeric' 
@@ -1732,8 +1752,10 @@ function AppContent() {
 
         if (data) {
           setTemplates(data.templates || []);
+          setAiMemory(data.ai_memory || '');
         } else {
           setTemplates([]);
+          setAiMemory('');
         }
       } catch (err) {
         console.error("Supabase Settings Fetch Err:", err);
@@ -2925,13 +2947,17 @@ function AppContent() {
     setChatHistory(prev => [...prev, newUserHistoryItem]);
 
     const shortName = user?.displayName?.split(' ')[0] || "Teman";
-    const result = await chatWithAI(userMessage, chatHistory, wins, shortName);
+    const result = await chatWithAI(userMessage, chatHistory, wins, shortName, aiMemory);
     
     setChatHistory(prev => [...prev, { 
       role: 'model', 
       parts: [{ text: result.text }],
       usage: result.usage
     }]);
+
+    if (result.aiMemory) {
+      saveAiMemory(result.aiMemory);
+    }
 
     if (result.isQuotaExceeded) {
       setError(language === 'ID' 
@@ -2942,13 +2968,36 @@ function AppContent() {
     setIsChatting(false);
   };
 
+  const saveAiMemory = async (newMemory: string) => {
+    if (!user) return;
+    setAiMemory(newMemory);
+    try {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ 
+          user_id: user.uid, 
+          ai_memory: newMemory,
+          templates: templates
+        });
+      if (error) throw error;
+    } catch (err) {
+      console.error("Failed to save AI memory:", err);
+    }
+  };
+
   const toggleChatStar = async (chatIndex: number) => {
     if (!user) return;
     const chat = chatHistory[chatIndex];
     if (chat.role !== 'model') return;
 
     const userPrompt = chatHistory[chatIndex - 1]?.parts[0].text || "Coach Insight";
-    const existingStar = chatStars.find(s => s.aiResponse === chat.parts[0].text && s.userPrompt === userPrompt);
+    const cleanedResponse = cleanAiResponse(chat.parts[0].text);
+    
+    // Find matching star using robust cleaned comparison
+    const existingStar = chatStars.find(s => 
+      s.userPrompt.trim().toLowerCase() === userPrompt.trim().toLowerCase() && 
+      cleanAiResponse(s.aiResponse) === cleanedResponse
+    );
 
     if (existingStar) {
       // Optimistic state update: remove instantly from local state
@@ -2971,7 +3020,7 @@ function AppContent() {
         id: starId,
         userId: user.uid,
         userPrompt: userPrompt,
-        aiResponse: chat.parts[0].text,
+        aiResponse: cleanedResponse, // Save cleaned version to database & state
         createdAt: Date.now()
       };
 
@@ -2985,12 +3034,12 @@ function AppContent() {
             id: starId,
             user_id: user.uid,
             user_prompt: userPrompt,
-            ai_response: chat.parts[0].text,
+            ai_response: cleanedResponse, // Save cleaned version to database & state
             created_at: new Date().toISOString()
           });
         if (error) throw error;
       } catch (err) {
-        console.error("Failed to create chat star:", err);
+        console.error("Failed to create chat star:", err, err?.message || err);
         // Rollback state on database write failure
         setChatStars(prev => prev.filter(s => s.id !== starId));
       }
@@ -3832,12 +3881,12 @@ function AppContent() {
                         <button 
                           onClick={() => toggleChatStar(i)}
                           className={`absolute -right-10 top-0 p-2 transition-all hover:scale-110 active:scale-95 ${
-                            chatStars.some(s => s.aiResponse === chat.parts[0].text) 
+                            chatStars.some(s => cleanAiResponse(s.aiResponse) === cleanAiResponse(chat.parts[0].text)) 
                               ? 'text-secondary opacity-100' 
                               : 'text-on-surface-variant opacity-20 hover:opacity-60'
                           }`}
                         >
-                          <Star className={`w-4 h-4 ${chatStars.some(s => s.aiResponse === chat.parts[0].text) ? 'fill-current' : ''}`} />
+                          <Star className={`w-4 h-4 ${chatStars.some(s => cleanAiResponse(s.aiResponse) === cleanAiResponse(chat.parts[0].text)) ? 'fill-current' : ''}`} />
                         </button>
                       )}
                     </div>

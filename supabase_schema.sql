@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS public.settings (
     user_id TEXT PRIMARY KEY,
     templates TEXT[] NOT NULL DEFAULT '{}',
+    ai_memory TEXT DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 

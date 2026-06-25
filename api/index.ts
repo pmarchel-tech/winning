@@ -183,7 +183,7 @@ app.post("/api/analyze-wins", async (req, res) => {
 // 2. Chat with AI Endpoint
 app.post("/api/chat-with-ai", async (req, res) => {
   try {
-    const { message, history, wins, userName } = req.body;
+    const { message, history, wins, userName, aiMemory } = req.body;
 
     const queryEmbedding = await (async () => {
       try {
@@ -354,6 +354,14 @@ ATURAN KETAT (HEMAT TOKEN):
 - TANPA FORMATTING: Jangan gunakan markdown, cetak tebal/miring, tanda bintang (*), hashtag (#), titik koma (;), atau em-dash (—). Berikan teks polos (plain text) dengan baris baru biasa.
 - HINDARI KATA KLISE/BUNGA: Dilarang memakai kata "bisa", "dapat", "boleh", "sangat", "hanya", "saja", "bahwa", "benar-benar", "wadah", "lanskap", atau "menyelami". Jawab langsung ke sasaran.
 
+MEMORI JANGKA PANJANG & PROFIL KEPRIBADIAN USER (AI MEMORY):
+${aiMemory || "(Belum ada memori personalisasi tercatat. Pelajari kepribadian, gaya kerja, hambatan, dan tujuan mereka dari percakapan ini.)"}
+
+TUGAS TAMBAHAN WAJIB (MEMORI SANGAT PENTING):
+Di baris paling akhir setelah jawaban utama kamu selesai, buat baris baru kosong dan tambahkan pembatas tepat seperti ini:
+===AI_MEMORY_UPDATE===
+[Perbarui dan tuliskan rangkuman kepribadian, gaya kerja, tujuan, preferensi, hambatan, atau poin kunci tentang user yang kamu pelajari dari percakapan ini. Gabungkan informasi baru ini secara ringkas dengan informasi memori lama di atas jika ada. Tulis dalam 1-2 kalimat pendek saja agar hemat token!]
+
 RISET UTUH DATABASE KEMENANGAN USER:
 - Total Kemenangan Tercatat: ${totalCount} entri
 - Distribusi Kategori (Tags): ${tagSummary || "Belum ada tag"}
@@ -415,10 +423,29 @@ Desain jawaban kamu berdasarkan hasil penelitian di atas. Rujuk riwayat kemenang
       };
     }
 
-    const responseWithUsage = responseText + `\n\n[Token Terpakai - Input: ${usage.promptTokenCount}, Output: ${usage.candidatesTokenCount}]`;
+    let finalChatResponse = responseText;
+    let updatedMemory = aiMemory || "";
+
+    const separator = "===AI_MEMORY_UPDATE===";
+    const idx = responseText.indexOf(separator);
+    if (idx !== -1) {
+      finalChatResponse = responseText.substring(0, idx).trim();
+      updatedMemory = responseText.substring(idx + separator.length).trim();
+    } else {
+      const lowerText = responseText.toLowerCase();
+      const fallbackSep = "===ai_memory_update===";
+      const fidx = lowerText.indexOf(fallbackSep);
+      if (fidx !== -1) {
+        finalChatResponse = responseText.substring(0, fidx).trim();
+        updatedMemory = responseText.substring(fidx + fallbackSep.length).trim();
+      }
+    }
+
+    const responseWithUsage = finalChatResponse + `\n\n[Token Terpakai - Input: ${usage.promptTokenCount}, Output: ${usage.candidatesTokenCount}]`;
 
     return res.json({ 
       text: responseWithUsage, 
+      aiMemory: updatedMemory,
       usage 
     });
   } catch (error: any) {

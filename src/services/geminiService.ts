@@ -52,8 +52,9 @@ export async function chatWithAI(
   message: string, 
   history: { role: string; parts: { text: string }[] }[], 
   wins: any[], 
-  userName: string = "User"
-): Promise<{ text: string; usage?: { promptTokenCount: number; candidatesTokenCount: number; totalTokenCount: number }; isQuotaExceeded?: boolean }> {
+  userName: string = "User",
+  aiMemory: string = ""
+): Promise<{ text: string; aiMemory?: string; usage?: { promptTokenCount: number; candidatesTokenCount: number; totalTokenCount: number }; isQuotaExceeded?: boolean }> {
   try {
     // Prune the wins collection to only include properties needed for search, scoring and timeline formatting.
     // Excludes heavy properties like base64 imageUrls, doText, haveText, etc. to prevent PayloadTooLarge errors.
@@ -73,7 +74,7 @@ export async function chatWithAI(
     const res = await fetch("/api/chat-with-ai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history, wins: prunedWins, userName })
+      body: JSON.stringify({ message, history, wins: prunedWins, userName, aiMemory })
     });
     
     if (!res.ok) {
@@ -87,6 +88,7 @@ export async function chatWithAI(
     }
     return {
       text: data.text || "Maaf, saya tidak bisa memproses permintaan saat ini.",
+      aiMemory: data.aiMemory || "",
       usage: data.usage,
       isQuotaExceeded: data.isQuotaExceeded || false
     };
