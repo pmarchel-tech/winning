@@ -182,155 +182,170 @@ app.post("/api/analyze-wins", async (req, res) => {
 
 // 2. Chat with AI Endpoint
 app.post("/api/chat-with-ai", async (req, res) => {
-  const { message, history, wins, userName } = req.body;
+  try {
+    const { message, history, wins, userName } = req.body;
 
-  const queryEmbedding = await (async () => {
-    try {
-      if (!message) return null;
-      if (isOpenAI()) {
-        const response = await callOpenAI("embeddings", {
-          model: "text-embedding-3-small",
-          input: message
-        });
-        return response.data?.[0]?.embedding || null;
-      } else {
-        const ai = getAiClient();
-        const result = await ai.models.embedContent({
-          model: 'gemini-embedding-2-preview',
-          contents: [message]
-        });
-        return result.embeddings?.[0]?.values || null;
+    const queryEmbedding = await (async () => {
+      try {
+        if (!message) return null;
+        if (isOpenAI()) {
+          const response = await callOpenAI("embeddings", {
+            model: "text-embedding-3-small",
+            input: message
+          });
+          return response.data?.[0]?.embedding || null;
+        } else {
+          const ai = getAiClient();
+          const result = await ai.models.embedContent({
+            model: 'gemini-embedding-2-preview',
+            contents: [message]
+          });
+          return result.embeddings?.[0]?.values || null;
+        }
+      } catch (e: any) {
+        console.log("Error getting message embedding in research engine:", e?.message || e);
+        return null;
       }
-    } catch (e: any) {
-      console.log("Error getting message embedding in research engine:", e?.message || e);
-      return null;
+    })();
+
+    const getWords = (text: string) => {
+      const stopWords = new Set(["yang", "dan", "di", "ke", "dari", "untuk", "dengan", "saya", "aku", "kamu", "bisa", "adalah", "ini", "itu", "pada", "juga", "atau", "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with", "is", "of"]);
+      return (text || "")
+        .toLowerCase()
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, " ")
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !stopWords.has(w));
+    };
+    const queryWords = getWords(message);
+
+    let totalCount = 0;
+    let habitCount = 0;
+    let beDoHaveCount = 0;
+    const tagCounts: Record<string, number> = {};
+    const scoredWins: any[] = [];
+
+    if (wins && Array.isArray(wins)) {
+      totalCount = wins.length;
+      
+      let maxTime = 0;
+      let minTime = Date.now();
+      wins.forEach(w => {
+        if (w && w.createdAt) {
+          const t = typeof w.createdAt === 'number' ? w.createdAt : new Date(w.createdAt).getTime();
+          if (!isNaN(t)) {
+            if (t > maxTime) maxTime = t;
+            if (t < minTime) minTime = t;
+          }
+        }
+      });
+
+      const cosineSimilarity = (vecA: number[], vecB: number[]) => {
+        if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+        for (let i = 0; i < vecA.length; i++) {
+          dotProduct += vecA[i] * vecB[i];
+          normA += vecA[i] * vecA[i];
+          normB += vecB[i] * vecB[i];
+        }
+        if (normA === 0 || normB === 0) return 0;
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+      };
+
+      for (const w of wins) {
+        if (!w) continue;
+
+        if (w.isHabitMode) habitCount++;
+        if (w.isBeDoHave) beDoHaveCount++;
+        if (Array.isArray(w.tags)) {
+          w.tags.forEach((tag: string) => {
+            const cleanTag = String(tag).trim();
+            if (cleanTag) {
+              tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
+            }
+          });
+        }
+
+        let score = 0;
+
+        if (queryEmbedding && Array.isArray(w.embedding) && w.embedding.length > 0) {
+          const similarity = cosineSimilarity(queryEmbedding, w.embedding);
+          if (similarity > 0.35) {
+            score += similarity * 100;
+          }
+        }
+
+        const textLower = (w.text || "").toLowerCase();
+        const reflectionsLower = (w.reflections || "").toLowerCase();
+        const tagsLower = (Array.isArray(w.tags) ? w.tags : []).map((t: string) => String(t).toLowerCase());
+
+        let keywordMatchCount = 0;
+        for (const word of queryWords) {
+          if (textLower.includes(word)) {
+            score += 10;
+            keywordMatchCount++;
+          }
+          if (reflectionsLower.includes(word)) {
+            score += 5;
+            keywordMatchCount++;
+          }
+          if (tagsLower.includes(word)) {
+            score += 20;
+            keywordMatchCount++;
+          }
+        }
+
+        if (w.pinned) score += 15;
+        if (w.starred) score += 8;
+
+        if (w.createdAt) {
+          const t = typeof w.createdAt === 'number' ? w.createdAt : new Date(w.createdAt).getTime();
+          if (!isNaN(t)) {
+            const timeFactor = maxTime > minTime ? (t - minTime) / (maxTime - minTime) : 1;
+            score += timeFactor * 10;
+          }
+        }
+
+        scoredWins.push({ win: w, score });
+      }
     }
-  })();
 
-  const getWords = (text: string) => {
-    const stopWords = new Set(["yang", "dan", "di", "ke", "dari", "untuk", "dengan", "saya", "aku", "kamu", "bisa", "adalah", "ini", "itu", "pada", "juga", "atau", "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with", "is", "of"]);
-    return (text || "")
-      .toLowerCase()
-      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"']/g, " ")
-      .split(/\s+/)
-      .filter(w => w.length >= 3 && !stopWords.has(w));
-  };
-  const queryWords = getWords(message);
-
-  let totalCount = 0;
-  let habitCount = 0;
-  let beDoHaveCount = 0;
-  const tagCounts: Record<string, number> = {};
-  const scoredWins: any[] = [];
-
-  if (wins && Array.isArray(wins)) {
-    totalCount = wins.length;
+    scoredWins.sort((a, b) => b.score - a.score);
+    const selectedWins = scoredWins.slice(0, 20).map(item => item.win);
     
-    let maxTime = 0;
-    let minTime = Date.now();
-    wins.forEach(w => {
-      if (w && w.createdAt) {
-        const t = typeof w.createdAt === 'number' ? w.createdAt : new Date(w.createdAt).getTime();
-        if (t > maxTime) maxTime = t;
-        if (t < minTime) minTime = t;
-      }
+    selectedWins.sort((a,b) => {
+      const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+      const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+      const valA = isNaN(tA) ? 0 : tA;
+      const valB = isNaN(tB) ? 0 : tB;
+      return valB - valA;
     });
 
-    const cosineSimilarity = (vecA: number[], vecB: number[]) => {
-      if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
-      let dotProduct = 0;
-      let normA = 0;
-      let normB = 0;
-      for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
-        normA += vecA[i] * vecA[i];
-        normB += vecB[i] * vecB[i];
-      }
-      if (normA === 0 || normB === 0) return 0;
-      return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-    };
-
-    for (const w of wins) {
-      if (!w) continue;
-
-      if (w.isHabitMode) habitCount++;
-      if (w.isBeDoHave) beDoHaveCount++;
-      if (Array.isArray(w.tags)) {
-        w.tags.forEach((tag: string) => {
-          const cleanTag = String(tag).trim();
-          if (cleanTag) {
-            tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
+    const relevantWinsText = selectedWins.length > 0 
+      ? selectedWins.map((w: any) => {
+          let formattedDate = '??-??-??';
+          if (w.createdAt) {
+            try {
+              const d = new Date(w.createdAt);
+              if (!isNaN(d.getTime())) {
+                formattedDate = d.toISOString().slice(0, 10);
+              }
+            } catch (e) {}
           }
-        });
-      }
+          const tags = Array.isArray(w.tags) && w.tags.length > 0 ? ` [Kategori: ${w.tags.join(',')}]` : '';
+          const mode = w.isHabitMode ? ' [Mode: Kebiasaan/Habit]' : w.isBeDoHave ? ' [Mode: Impian/BeDoHave]' : '';
+          const reflection = w.reflections ? ` (Refleksi: ${w.reflections})` : '';
+          return `- [${formattedDate}] ${w.text}${mode}${tags}${reflection}`;
+        }).join('\n')
+      : "(Tidak ada rekaman kemenangan relevan ditemukan)";
 
-      let score = 0;
+    const tagSummary = Object.entries(tagCounts)
+      .sort((a,b) => b[1] - a[1])
+      .map(([name, count]) => `${name} (${count})`)
+      .join(', ');
 
-      if (queryEmbedding && Array.isArray(w.embedding) && w.embedding.length > 0) {
-        const similarity = cosineSimilarity(queryEmbedding, w.embedding);
-        if (similarity > 0.35) {
-          score += similarity * 100;
-        }
-      }
-
-      const textLower = (w.text || "").toLowerCase();
-      const reflectionsLower = (w.reflections || "").toLowerCase();
-      const tagsLower = (Array.isArray(w.tags) ? w.tags : []).map((t: string) => String(t).toLowerCase());
-
-      let keywordMatchCount = 0;
-      for (const word of queryWords) {
-        if (textLower.includes(word)) {
-          score += 10;
-          keywordMatchCount++;
-        }
-        if (reflectionsLower.includes(word)) {
-          score += 5;
-          keywordMatchCount++;
-        }
-        if (tagsLower.includes(word)) {
-          score += 20;
-          keywordMatchCount++;
-        }
-      }
-
-      if (w.pinned) score += 15;
-      if (w.starred) score += 8;
-
-      if (w.createdAt) {
-        const t = typeof w.createdAt === 'number' ? w.createdAt : new Date(w.createdAt).getTime();
-        const timeFactor = maxTime > minTime ? (t - minTime) / (maxTime - minTime) : 1;
-        score += timeFactor * 10;
-      }
-
-      scoredWins.push({ win: w, score });
-    }
-  }
-
-  scoredWins.sort((a, b) => b.score - a.score);
-  const selectedWins = scoredWins.slice(0, 20).map(item => item.win);
-  
-  selectedWins.sort((a,b) => {
-    const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
-    const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
-    return tB - tA;
-  });
-
-  const relevantWinsText = selectedWins.length > 0 
-    ? selectedWins.map((w: any) => {
-        const formattedDate = w.createdAt ? new Date(w.createdAt).toISOString().slice(0, 10) : '??-??-??';
-        const tags = Array.isArray(w.tags) && w.tags.length > 0 ? ` [Kategori: ${w.tags.join(',')}]` : '';
-        const mode = w.isHabitMode ? ' [Mode: Kebiasaan/Habit]' : w.isBeDoHave ? ' [Mode: Impian/BeDoHave]' : '';
-        const reflection = w.reflections ? ` (Refleksi: ${w.reflections})` : '';
-        return `- [${formattedDate}] ${w.text}${mode}${tags}${reflection}`;
-      }).join('\n')
-    : "(Tidak ada rekaman kemenangan relevan ditemukan)";
-
-  const tagSummary = Object.entries(tagCounts)
-    .sort((a,b) => b[1] - a[1])
-    .map(([name, count]) => `${name} (${count})`)
-    .join(', ');
-
-  const systemInstruction = `Kamu adalah growth coach Bahasa Indonesia untuk ${userName || "User"}. Bantu dia tumbuh melampaui batas potensinya.
+    const systemInstruction = `Kamu adalah growth coach Bahasa Indonesia untuk ${userName || "User"}. Bantu dia tumbuh melampaui batas potensinya.
 
 ATURAN KETAT (HEMAT TOKEN):
 - Gunakan Bahasa Indonesia sederhana, santun, lugas, tegas, dan berwibawa. No intro/outro/basa-basi.
@@ -351,7 +366,6 @@ ${relevantWinsText}
 PETUNJUK RESPONS KEPADA COACH:
 Desain jawaban kamu berdasarkan hasil penelitian di atas. Rujuk riwayat kemenangan spesifik mereka (sebut tgl, topik, isi kemenangan, refleksi mereka) untuk memvalidasi kemajuan mereka dan merumuskan saran konkrit baru. Tunjukan bahwa kamu benar-benar meneliti sejarah sukses mereka dalam menjawab!`;
 
-  try {
     const prunedHistory = (history || []).slice(-6);
     const formattedHistory = prunedHistory.map((h: any) => ({
       role: h.role === 'user' ? 'user' : 'model',

@@ -2951,6 +2951,9 @@ function AppContent() {
     const existingStar = chatStars.find(s => s.aiResponse === chat.parts[0].text && s.userPrompt === userPrompt);
 
     if (existingStar) {
+      // Optimistic state update: remove instantly from local state
+      setChatStars(prev => prev.filter(s => s.id !== existingStar.id));
+      
       try {
         const { error } = await supabase
           .from('chat_stars')
@@ -2959,10 +2962,23 @@ function AppContent() {
         if (error) throw error;
       } catch (err) {
         console.error("Failed to delete chat star:", err);
+        // Rollback state on database write failure
+        setChatStars(prev => [existingStar, ...prev]);
       }
     } else {
+      const starId = 'star_' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
+      const newStar = {
+        id: starId,
+        userId: user.uid,
+        userPrompt: userPrompt,
+        aiResponse: chat.parts[0].text,
+        createdAt: Date.now()
+      };
+
+      // Optimistic state update: add instantly to local state
+      setChatStars(prev => [newStar, ...prev]);
+
       try {
-        const starId = 'star_' + Math.random().toString(36).substr(2, 9) + Math.random().toString(36).substr(2, 9);
         const { error } = await supabase
           .from('chat_stars')
           .insert({
@@ -2975,7 +2991,30 @@ function AppContent() {
         if (error) throw error;
       } catch (err) {
         console.error("Failed to create chat star:", err);
+        // Rollback state on database write failure
+        setChatStars(prev => prev.filter(s => s.id !== starId));
       }
+    }
+  };
+
+  const deleteChatStar = async (starId: string) => {
+    if (!user) return;
+    const existingStar = chatStars.find(s => s.id === starId);
+    if (!existingStar) return;
+
+    // Optimistic state update: remove instantly from local state
+    setChatStars(prev => prev.filter(s => s.id !== starId));
+    
+    try {
+      const { error } = await supabase
+        .from('chat_stars')
+        .delete()
+        .eq('id', starId);
+      if (error) throw error;
+    } catch (err) {
+      console.error("Failed to delete chat star:", err);
+      // Rollback state on database write failure
+      setChatStars(prev => [existingStar, ...prev]);
     }
   };
 
@@ -3686,24 +3725,38 @@ function AppContent() {
                               </div>
                               <div className="flex flex-col">
                                 {stars.map((star) => (
-                                  <button
+                                  <div
                                     key={star.id}
-                                    onClick={() => {
-                                      setChatHistory([
-                                        { role: 'user', parts: [{ text: star.userPrompt }] },
-                                        { role: 'model', parts: [{ text: star.aiResponse }] }
-                                      ] as any);
-                                      setIsStarDropdownOpen(false);
-                                    }}
-                                    className="p-4 text-left hover:bg-secondary/5 transition-colors group flex flex-col gap-1 border-b border-surface-container/50 last:border-none"
+                                    className="hover:bg-secondary/5 transition-colors flex items-center justify-between border-b border-surface-container/50 last:border-none group/star"
                                   >
-                                    <p className="text-[10px] font-bold opacity-50 line-clamp-1 group-hover:text-secondary transition-colors italic">
-                                      "{star.userPrompt}"
-                                    </p>
-                                    <p className="text-xs line-clamp-1 leading-relaxed opacity-80">
-                                      {star.aiResponse}
-                                    </p>
-                                  </button>
+                                    <button
+                                      onClick={() => {
+                                        setChatHistory([
+                                          { role: 'user', parts: [{ text: star.userPrompt }] },
+                                          { role: 'model', parts: [{ text: star.aiResponse }] }
+                                        ] as any);
+                                        setIsStarDropdownOpen(false);
+                                      }}
+                                      className="flex-1 p-4 text-left flex flex-col gap-1"
+                                    >
+                                      <p className="text-[10px] font-bold opacity-50 line-clamp-1 group-hover/star:text-secondary transition-colors italic">
+                                        "{star.userPrompt}"
+                                      </p>
+                                      <p className="text-xs line-clamp-1 leading-relaxed opacity-80">
+                                        {star.aiResponse}
+                                      </p>
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteChatStar(star.id);
+                                      }}
+                                      className="p-4 text-red-500 dark:text-red-400 opacity-40 hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                      title={t.delete}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
                                 ))}
                               </div>
                             </div>
