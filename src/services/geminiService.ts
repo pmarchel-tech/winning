@@ -31,14 +31,20 @@ export async function analyzeWins(wins: any[]) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ wins: prunedWins })
     });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Server status ${res.status}: ${errText.slice(0, 150)}`);
+    }
+    
     const data = await res.json();
     if (data.usage) {
       logTokenUsage("Analyze Wins", data.usage);
     }
     return data.text || "Terus melangkah! Setiap kemenangan kecil adalah bahan bakar untuk terobosan besar kamu.";
-  } catch (error) {
+  } catch (error: any) {
     console.warn("Error analyzing wins:", error);
-    return "Terus melangkah! Setiap kemenangan kecil adalah bahan bakar untuk terobosan besar kamu.";
+    return `Terjadi kesalahan analisis: ${error?.message || String(error)}`;
   }
 }
 
@@ -69,6 +75,12 @@ export async function chatWithAI(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, history, wins: prunedWins, userName })
     });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Server status ${res.status}: ${errText.slice(0, 150)}`);
+    }
+    
     const data = await res.json();
     if (data.usage) {
       logTokenUsage("Chat Coach", data.usage);
@@ -78,10 +90,10 @@ export async function chatWithAI(
       usage: data.usage,
       isQuotaExceeded: data.isQuotaExceeded || false
     };
-  } catch (error) {
+  } catch (error: any) {
     console.warn("Error in AI chat:", error);
     return {
-      text: "Maaf, ada kendala teknis. Tetap semangat!",
+      text: `Maaf, ada kendala teknis: ${error?.message || String(error)}`,
       isQuotaExceeded: false
     };
   }
@@ -94,12 +106,18 @@ export async function getEmbedding(text: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text })
     });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Server status ${res.status}: ${errText.slice(0, 150)}`);
+    }
+    
     const data = await res.json();
     if (data.usage) {
       logTokenUsage("Semantic Vector", data.usage);
     }
     return data.embedding || null;
-  } catch (error) {
+  } catch (error: any) {
     console.warn("Error getting embedding:", error);
     return null;
   }
