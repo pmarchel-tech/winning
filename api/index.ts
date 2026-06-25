@@ -311,10 +311,29 @@ app.post("/api/chat-with-ai", async (req, res) => {
       }
     }
 
+    // Combined RAG Strategy: 10 most recent wins + 10 most semantically relevant wins
+    const recentWins = [...wins]
+      .sort((a, b) => {
+        const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
+        const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
+        return tB - tA;
+      })
+      .slice(0, 10);
+
     scoredWins.sort((a, b) => b.score - a.score);
-    const selectedWins = scoredWins.slice(0, 20).map(item => item.win);
-    
-    selectedWins.sort((a,b) => {
+    const topScoredWins = scoredWins.slice(0, 12).map(item => item.win);
+
+    // Merge them uniquely
+    const uniqueWinsMap = new Map();
+    topScoredWins.forEach(w => uniqueWinsMap.set(w.id, w));
+    recentWins.forEach(w => {
+      if (!uniqueWinsMap.has(w.id)) {
+        uniqueWinsMap.set(w.id, w);
+      }
+    });
+
+    const selectedWins = Array.from(uniqueWinsMap.values());
+    selectedWins.sort((a, b) => {
       const tA = typeof a.createdAt === 'number' ? a.createdAt : new Date(a.createdAt || 0).getTime();
       const tB = typeof b.createdAt === 'number' ? b.createdAt : new Date(b.createdAt || 0).getTime();
       const valA = isNaN(tA) ? 0 : tA;
@@ -345,22 +364,27 @@ app.post("/api/chat-with-ai", async (req, res) => {
       .map(([name, count]) => `${name} (${count})`)
       .join(', ');
 
-    const systemInstruction = `Kamu adalah growth coach Bahasa Indonesia untuk ${userName || "User"}. Bantu dia tumbuh melampaui batas potensinya.
+    const systemInstruction = `Kamu adalah growth coach Bahasa Indonesia untuk ${userName || "User"}. Peranmu adalah menganalisis riwayat sukses, kemenangan (wins), dan kebiasaan mereka untuk memberikan arahan yang tajam, motivasional, dan personal.
 
-ATURAN KETAT (HEMAT TOKEN):
-- Gunakan Bahasa Indonesia sederhana, santun, lugas, tegas, dan berwibawa. No intro/outro/basa-basi.
-- Selesaikan setiap respons dengan saran tindakan praktis/langkah konkrit hari ini.
-- Sapa dengan "kamu"/"kamumu", jangan gunakan "Anda".
-- TANPA FORMATTING: Jangan gunakan markdown, cetak tebal/miring, tanda bintang (*), hashtag (#), titik koma (;), atau em-dash (—). Berikan teks polos (plain text) dengan baris baru biasa.
-- HINDARI KATA KLISE/BUNGA: Dilarang memakai kata "bisa", "dapat", "boleh", "sangat", "hanya", "saja", "bahwa", "benar-benar", "wadah", "lanskap", atau "menyelami". Jawab langsung ke sasaran.
+TUGAS UTAMA PERCAKAPAN:
+1. BACA DAN PAHAMI PERTANYAAN USER & KONTEKS DATABASE: Kamu wajib membaca pertanyaan mereka dengan seksama, lalu mencocokkannya dengan Kemenangan Tercatat (wins) mereka di bawah. Rujuk kemenangan spesifik mereka (sebut tanggal, isi kemenangan, atau refleksi mereka) agar mereka tahu kamu benar-benar memahami perjalanan sukses mereka.
+2. HUBUNGKAN DENGAN MEMORI JANGKA PANJANG (AI MEMORY): Gunakan profil memori jangka panjang mereka untuk menyambung percakapan secara akrab seperti seorang pelatih pribadi yang sudah lama mendampingi mereka.
+3. BUAT/UPDATE AI MEMORY OTOMATIS: Jika memori jangka panjang masih kosong, lakukan analisis mendalam terhadap seluruh daftar kemenangan mereka di bawah, tarik kesimpulan tentang kepribadian, kekuatan utama, atau kecenderungan mereka, lalu tuliskan profil kepribadian awal mereka secara lengkap pada kolom ===AI_MEMORY_UPDATE===.
 
-MEMORI JANGKA PANJANG & PROFIL KEPRIBADIAN USER (AI MEMORY):
-${aiMemory || "(Belum ada memori personalisasi tercatat. Pelajari kepribadian, gaya kerja, hambatan, dan tujuan mereka dari percakapan ini.)"}
+ATURAN GAYA BAHASA & STRUKTUR (HEMAT TOKEN):
+- Gunakan Bahasa Indonesia santun, lugas, tegas, penuh wibawa, dan membakar semangat. Sapa dengan "kamu", jangan pernah gunakan "Anda".
+- Berikan jawaban langsung ke sasaran (1-2 paragraf pendek), bebas dari basa-basi pembuka/penutup yang tidak perlu.
+- Setiap jawaban WAJIB diakhiri dengan satu saran tindakan praktis (langkah konkrit) yang dapat mereka lakukan hari ini.
+- TEKS POLOS SAJA: Dilarang keras menggunakan markdown tebal/miring, tanda bintang (*), hashtag (#), titik koma (;), atau tanda hubung em-dash (—). Tulis dalam teks polos biasa dengan baris baru biasa.
+- JANGAN BERBELIT-BELIT: Hindari kata klise bunga-bunga seperti "lanskap", "menyelami", "wadah", "merancang", "sangat", "benar-benar", "hanya", "saja". Jawab dengan spartan dan berbobot.
+
+MEMORI JANGKA PANJANG & KEPRIBADIAN SAYA (AI MEMORY):
+${aiMemory || "(Belum ada memori personalisasi tercatat. Pelajari dan buat profil kepribadian awal saya dari seluruh daftar kemenangan di bawah!)"}
 
 TUGAS TAMBAHAN WAJIB (MEMORI SANGAT PENTING):
-Di baris paling akhir setelah jawaban utama kamu selesai, buat baris baru kosong dan tambahkan pembatas tepat seperti ini:
+Di baris paling akhir setelah jawaban utama selesai, buat baris baru kosong dan tambahkan pembatas tepat seperti ini:
 ===AI_MEMORY_UPDATE===
-[Perbarui dan tuliskan rangkuman kepribadian, gaya kerja, tujuan, preferensi, hambatan, atau poin kunci tentang user yang kamu pelajari dari percakapan ini. Gabungkan informasi baru ini secara ringkas dengan informasi memori lama di atas jika ada. Tulis dalam 1-2 kalimat pendek saja agar hemat token!]
+[Tulis di sini: Jika memori lama masih kosong, tulis profil kepribadian, gaya kerja, kekuatan utama, dan tujuan user secara mendalam berdasarkan analisis daftar kemenangan mereka. Jika memori lama sudah ada, perbarui memori tersebut dengan fakta baru yang dipelajari dari obrolan ini. Tulis secara padat dalam 1-2 kalimat pendek saja agar hemat token!]
 
 RISET UTUH DATABASE KEMENANGAN USER:
 - Total Kemenangan Tercatat: ${totalCount} entri
@@ -368,11 +392,11 @@ RISET UTUH DATABASE KEMENANGAN USER:
 - Status Mode Kebiasaan (Habits): ${habitCount} entri
 - Status Mode Impian (Be-Do-Have): ${beDoHaveCount} entri
 
-REKAMAN KEMENANGAN TERKAIT & RELEVAN HASIL PENELITIAN DAN RISET SEMANTIK DATABASE:
+REKAMAN KEMENANGAN CHRONOLOGICAL & SEMANTIC (RIWAYAT SUKSES SAYA):
 ${relevantWinsText}
 
 PETUNJUK RESPONS KEPADA COACH:
-Desain jawaban kamu berdasarkan hasil penelitian di atas. Rujuk riwayat kemenangan spesifik mereka (sebut tgl, topik, isi kemenangan, refleksi mereka) untuk memvalidasi kemajuan mereka dan merumuskan saran konkrit baru. Tunjukan bahwa kamu benar-benar meneliti sejarah sukses mereka dalam menjawab!`;
+Hubungkan pertanyaan user dengan riwayat kesuksesan spesifik mereka di atas. Tunjukkan bahwa kamu benar-benar meneliti sejarah sukses mereka sebelum menjawab!`;
 
     const prunedHistory = (history || []).slice(-6);
     const formattedHistory = prunedHistory.map((h: any) => ({
