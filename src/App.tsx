@@ -327,6 +327,7 @@ function AppContent() {
 
   const [allWins, setAllWins] = useState<Win[]>([]);
   const [fetchingAll, setFetchingAll] = useState(false);
+  const [loadingWins, setLoadingWins] = useState(true);
 
   const [tokenLogs, setTokenLogs] = useState<{ id: string; functionName: string; inputTokens: number; outputTokens: number; createdAt: any }[]>([]);
   const [isTokenLogsExpanded, setIsTokenLogsExpanded] = useState(false);
@@ -1538,6 +1539,8 @@ function AppContent() {
     }
 
     const fetchWins = async () => {
+      setLoadingWins(true);
+      console.time("⏱️ Supabase Fetch Wins");
       try {
         const { data, error } = await supabase
           .from('wins')
@@ -1568,6 +1571,9 @@ function AppContent() {
         setAllWins(winsData);
       } catch (err) {
         console.error("Supabase Wins Fetch Err:", err);
+      } finally {
+        setLoadingWins(false);
+        console.timeEnd("⏱️ Supabase Fetch Wins");
       }
     };
 
@@ -1603,10 +1609,11 @@ function AppContent() {
     }
 
     const fetchChatStars = async () => {
+      console.time("⏱️ Supabase Fetch Chat Stars");
       try {
         const { data, error } = await supabase
           .from('chat_stars')
-          .select('*')
+          .select('id, user_id, user_prompt, ai_response, created_at')
           .eq('user_id', user.uid);
         if (error) throw error;
 
@@ -1621,6 +1628,8 @@ function AppContent() {
         setChatStars(starred);
       } catch (err) {
         console.error("Supabase Chat Stars Fetch Err:", err);
+      } finally {
+        console.timeEnd("⏱️ Supabase Fetch Chat Stars");
       }
     };
 
@@ -1650,11 +1659,14 @@ function AppContent() {
     }
 
     const fetchTokenLogs = async () => {
+      console.time("⏱️ Supabase Fetch Token Logs");
       try {
         const { data, error } = await supabase
           .from('token_logs')
-          .select('*')
-          .eq('user_id', user.uid);
+          .select('id, function_name, input_tokens, output_tokens, created_at')
+          .eq('user_id', user.uid)
+          .order('created_at', { ascending: false })
+          .limit(100);
         if (error) throw error;
 
         const logs = (data || []).map(row => ({
@@ -1668,6 +1680,8 @@ function AppContent() {
         setTokenLogs(logs);
       } catch (err) {
         console.error("Supabase Token Logs Fetch Err:", err);
+      } finally {
+        console.timeEnd("⏱️ Supabase Fetch Token Logs");
       }
     };
 
@@ -3669,43 +3683,50 @@ function AppContent() {
               {/* Recent Activity */}
               <section>
                 <h2 className="label-caps mb-3 uppercase tracking-widest">{language === 'ID' ? 'Kemenangan Terakhir' : 'Last Recorded Win'}</h2>
-    {wins.length > 0 ? (
-      <div 
-        className={`p-padding-card rounded-lg bento-card group transition-colors overflow-hidden ${
-        wins[0].isHabitMode 
-          ? 'bg-[#6FCF97] dark:bg-[#2D5A43] border-[#6FCF97] dark:border-[#2D5A43]' 
-          : (wins[0].isBeDoHave
-              ? 'bg-[#0091EA] dark:bg-[#01579B] border-[#0091EA] dark:border-[#01579B] text-white shadow-[0_0_15px_rgba(0,145,234,0.3)] dark:shadow-[0_0_25px_rgba(1,87,155,0.4)]'
-              : 'bg-surface border border-surface-container')
-      }`}>
-        {wins[0].imageUrl && (
-          <div 
-            onClick={(e) => {
-              e.stopPropagation();
-              setPreviewImageUrl(wins[0].imageUrl || null);
-            }}
-            className="w-full h-32 -mx-padding-card -mt-padding-card mb-4 overflow-hidden cursor-zoom-in"
-          >
-            <img src={wins[0].imageUrl} alt="Win attachment" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-          </div>
-        )}
-        <div className="flex justify-between items-start mb-3">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 flex items-center justify-center ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : 'text-tertiary'}`}>
-              {(wins[0].isHabitMode || wins[0].isBeDoHave) ? <CheckCircle2 className="w-6 h-6" /> : <Award className="w-6 h-6" />}
-            </div>
-            <div>
-              <p className={`font-bold text-lg leading-none truncate max-w-[200px] ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : ''}`}>{wins[0].text}</p>
-              <p className={`label-caps text-[10px] mt-1 ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white opacity-80' : 'opacity-60'}`}>
-                {((wins[0].createdAt as any).toDate ? (wins[0].createdAt as any).toDate() : new Date(wins[0].createdAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
-          </div>
-          <ChevronRight className={`w-5 h-5 group-hover:translate-x-1 transition-transform ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : 'text-on-surface-variant'}`} />
-        </div>
-        <p className={`text-body-sm line-clamp-2 ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white opacity-90' : 'text-on-surface-variant'}`}>
-          {wins[0].text}
-        </p>
+                {loadingWins ? (
+                  <div className="bg-surface p-6 rounded-lg bento-card flex items-center justify-center gap-3 border border-surface-container/50">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                    <span className="text-xs opacity-60 font-medium">
+                      {language === 'ID' ? 'Memuat data kemenangan...' : 'Loading your wins...'}
+                    </span>
+                  </div>
+                ) : wins.length > 0 ? (
+                  <div 
+                    className={`p-padding-card rounded-lg bento-card group transition-colors overflow-hidden ${
+                    wins[0].isHabitMode 
+                      ? 'bg-[#6FCF97] dark:bg-[#2D5A43] border-[#6FCF97] dark:border-[#2D5A43]' 
+                      : (wins[0].isBeDoHave
+                          ? 'bg-[#0091EA] dark:bg-[#01579B] border-[#0091EA] dark:border-[#01579B] text-white shadow-[0_0_15px_rgba(0,145,234,0.3)] dark:shadow-[0_0_25px_rgba(1,87,155,0.4)]'
+                          : 'bg-surface border border-surface-container')
+                  }`}>
+                    {wins[0].imageUrl && (
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewImageUrl(wins[0].imageUrl || null);
+                        }}
+                        className="w-full h-32 -mx-padding-card -mt-padding-card mb-4 overflow-hidden cursor-zoom-in"
+                      >
+                        <img src={wins[0].imageUrl} alt="Win attachment" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      </div>
+                    )}
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 flex items-center justify-center ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : 'text-tertiary'}`}>
+                          {(wins[0].isHabitMode || wins[0].isBeDoHave) ? <CheckCircle2 className="w-6 h-6" /> : <Award className="w-6 h-6" />}
+                        </div>
+                        <div>
+                          <p className={`font-bold text-lg leading-none truncate max-w-[200px] ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : ''}`}>{wins[0].text}</p>
+                          <p className={`label-caps text-[10px] mt-1 ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white opacity-80' : 'opacity-60'}`}>
+                            {((wins[0].createdAt as any).toDate ? (wins[0].createdAt as any).toDate() : new Date(wins[0].createdAt)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-5 h-5 group-hover:translate-x-1 transition-transform ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white' : 'text-on-surface-variant'}`} />
+                    </div>
+                    <p className={`text-body-sm line-clamp-2 ${(wins[0].isHabitMode || wins[0].isBeDoHave) ? 'text-white opacity-90' : 'text-on-surface-variant'}`}>
+                      {wins[0].text}
+                    </p>
                     {!(wins[0].isHabitMode) && wins[0].tags.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-4">
                         {wins[0].tags.map(tag => (
